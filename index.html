@@ -126,7 +126,7 @@ select,input[type=number],input[type=text]{
    0. CONFIG
    ========================================================= */
 const CONFIG = {
-  VERSION: "1.1-final-qc-balanced-local",
+  VERSION: "1.2-online-cloud-submit",
   STORAGE_KEY: "cav_survey_state_v10",
   ACCEPTED_KEY: "cav_survey_accepted_v10",
   BLOCKED_KEY: "cav_survey_blocked_v10",
@@ -159,6 +159,14 @@ const CONFIG = {
 
   // Composite rule: multiple independent quality problems are required.
   COMPOSITE_BLOCK_SCORE: 3
+};
+
+
+const CLOUD = {
+  SUPABASE_URL: "https://rdrmuuemliyvqpkrhtax.supabase.co",
+  SUPABASE_PUBLISHABLE_KEY: "sb_publishable_T_Au-ACIjNWpOBTdB01rhg_mpZ2-zAj",
+  TABLE: "survey_submissions",
+  TIMEOUT_MS: 20000
 };
 
 const params = new URLSearchParams(location.search);
@@ -467,6 +475,122 @@ function armMinimumTime(buttonSelector, ms, labelReady){
   tick();
 }
 
+
+/* =========================================================
+   4B. CLOUD SUBMISSION
+   ========================================================= */
+async function postToSupabase(status){
+  const snapshot = JSON.parse(JSON.stringify(state));
+  snapshot.cloud_status = status;
+
+  const row = {
+    respondent_id: state.respondent_id,
+    platform_pid: state.platform_pid || null,
+    block_id: state.block_id || null,
+    survey_version: state.version || CONFIG.VERSION,
+    status,
+    payload: snapshot,
+    quality: state.quality || null,
+    client_started_at: state.started_at || null,
+    client_submitted_at: state.submitted_at || state.blocked_at || nowISO(),
+    client_duration_sec: Number.isFinite(Number(state.duration_sec)) ? Number(state.duration_sec) : null,
+    user_agent: navigator.userAgent
+  };
+
+  const controller = new AbortController();
+  const timer = setTimeout(()=>controller.abort(), CLOUD.TIMEOUT_MS);
+
+  try{
+    const response = await fetch(
+      CLOUD.SUPABASE_URL + "/rest/v1/" + CLOUD.TABLE,
+      {
+        method:"POST",
+        headers:{
+          "apikey": CLOUD.SUPABASE_PUBLISHABLE_KEY,
+          "Content-Type":"application/json",
+          "Prefer":"return=minimal"
+        },
+        body:JSON.stringify(row),
+        signal:controller.signal
+      }
+    );
+
+    // A duplicate respondent_id (HTTP 409 after unique index is enabled)
+    // is treated as already received, not as a failed questionnaire.
+    if(response.status===409){
+      return {ok:true, duplicate:true, status:409};
+    }
+
+    if(!response.ok){
+      const text = await response.text();
+      throw new Error("HTTP "+response.status+"\\n"+text);
+    }
+
+    return {ok:true, duplicate:false, status:response.status};
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function setCloudPending(status){
+  state.cloud={
+    ...(state.cloud||{}),
+    pending_status:status,
+    last_attempt_at:nowISO(),
+    last_error:null
+  };
+  save();
+}
+function setCloudSuccess(status,res){
+  state.cloud={
+    ...(state.cloud||{}),
+    pending_status:null,
+    synced_status:status,
+    synced_at:nowISO(),
+    duplicate:Boolean(res?.duplicate),
+    http_status:res?.status??null,
+    last_error:null
+  };
+  save();
+}
+function setCloudError(status,err){
+  state.cloud={
+    ...(state.cloud||{}),
+    pending_status:status,
+    last_attempt_at:nowISO(),
+    last_error:String(err && err.message ? err.message : err)
+  };
+  save();
+}
+
+async function submitAcceptedToCloud(){
+  setCloudPending("completed");
+  try{
+    const res=await postToSupabase("completed");
+    setCloudSuccess("completed",res);
+    return true;
+  }catch(err){
+    setCloudError("completed",err);
+    state.page="cloudError";
+    save();
+    render();
+    return false;
+  }
+}
+
+async function submitRejectedToCloud(){
+  setCloudPending("quality_rejected");
+  try{
+    const res=await postToSupabase("quality_rejected");
+    setCloudSuccess("quality_rejected",res);
+    return true;
+  }catch(err){
+    // A rejected response must remain rejected even if cloud logging fails.
+    setCloudError("quality_rejected",err);
+    return false;
+  }
+}
+
 /* =========================================================
    5. QUALITY EVALUATION
    ========================================================= */
@@ -580,7 +704,7 @@ function renderAdmin(){
 
   app.innerHTML=`<section class="card">
     <h1>本机测试数据后台</h1>
-    <div class="warning"><b>LOCAL TEST MODE：</b>数据仅保存在当前浏览器。不同设备的数据不会自动汇总。</div>
+    <div class="notice"><b>ONLINE CLOUD MODE：</b>成功提交的正式记录会写入 Supabase；本页面仍只展示当前浏览器保存的本地测试副本。</div>
     <div class="admin-grid">
       <div class="stat"><span>合计记录</span><b>${all.length}</b></div>
       <div class="stat"><span>成功提交</span><b>${accepted.length}</b></div>
@@ -735,6 +859,7 @@ function render(){
   if(state.page==="repeat")return renderRepeat();
   if(state.page==="demographics")return renderDemographics();
   if(state.page==="complete")return renderComplete();
+  if(state.page==="cloudError")return renderCloudError();
   if(state.page==="blocked")return renderBlocked();
 }
 
@@ -1218,7 +1343,7 @@ function renderDemographics(){
 /* =========================================================
    18. SUBMISSION GATE
    ========================================================= */
-function evaluateAndSubmit(){
+async function evaluateAndSubmit(){
   state.deep_profile_id=state.profiles[state.deep_profile_index].profile_id;
   state.repeat_diff=Math.abs(Number(state.deep_answers.ps1)-Number(state.repeat_ps1));
   state.duration_sec=Math.round((Date.now()-state.start_ms)/1000);
@@ -1228,25 +1353,27 @@ function evaluateAndSubmit(){
     return blockNow(state.quality.hard_reasons.join("|")||"quality_gate_failed",true);
   }
 
+  // Lock a completed snapshot locally first.
   state.completed=true;
   state.submitted_at=nowISO();
-  state.page="complete";
 
+  // Keep the old local test archive as a backup.
   const rows=getAccepted();
-  const duplicate=rows.some(r=>r.respondent_id===state.respondent_id||(
-    state.platform_pid&&r.platform_pid&&r.platform_pid===state.platform_pid
-  ));
-  if(duplicate){
-    return blockNow("duplicate_submission",true);
+  if(!rows.some(r=>r.respondent_id===state.respondent_id)){
+    rows.push(JSON.parse(JSON.stringify(state)));
+    putAccepted(rows);
   }
 
-  rows.push(JSON.parse(JSON.stringify(state)));
-  putAccepted(rows);
+  // Critical change: do not show "success" until Supabase confirms receipt.
+  const cloudOk=await submitAcceptedToCloud();
+  if(!cloudOk)return;
+
+  state.page="complete";
   save();
   render();
 }
 
-function blockNow(reason,keepQuality=false){
+async function blockNow(reason,keepQuality=false){
   state.blocked=true;
   state.completed=false;
   state.blocked_reason=reason;
@@ -1261,6 +1388,10 @@ function blockNow(reason,keepQuality=false){
     putBlocked(rows);
   }
   save();
+
+  // Log quality-rejected cases to the central database.
+  // Failure to log does NOT turn a rejected response into an accepted one.
+  await submitRejectedToCloud();
   render();
 }
 
@@ -1277,6 +1408,42 @@ function renderBlocked(){
   </section>`;
 }
 
+
+/* =========================================================
+   18B. CLOUD ERROR / RETRY
+   ========================================================= */
+function renderCloudError(){
+  setProgress(.98);
+  app.innerHTML=`<section class="card">
+    <h1>数据暂未成功上传</h1>
+    <div class="warning">
+      您的回答已经保存在当前设备中，但中央数据库暂时没有确认收到数据。
+      <b>请不要关闭页面。</b>
+    </div>
+    <p>这通常由临时网络波动造成。请检查网络后点击“重新上传”。</p>
+    <p class="small muted">重新上传不会要求您重新填写问卷。</p>
+    ${isDebug?`<div class="debug">${esc(state.cloud?.last_error||"")}</div>`:""}
+    <div class="actions">
+      <button class="primary" id="retryCloud">重新上传</button>
+    </div>
+  </section>`;
+
+  $("#retryCloud").onclick=async()=>{
+    const btn=$("#retryCloud");
+    btn.disabled=true;
+    btn.textContent="正在上传……";
+    const ok=await submitAcceptedToCloud();
+    if(ok){
+      state.page="complete";
+      save();
+      render();
+    }else{
+      btn.disabled=false;
+      btn.textContent="重新上传";
+    }
+  };
+}
+
 /* =========================================================
    19. COMPLETE
    ========================================================= */
@@ -1285,8 +1452,8 @@ function renderComplete(){
   app.innerHTML=`<section class="card">
     <h1>问卷已成功提交</h1>
     <div class="successbox">感谢您的参与。本次作答已通过提交前的数据完整性与质量检查。</div>
-    <div class="warning small">
-      当前文件仍是<b>本地数据版</b>：回答只保存在当前浏览器中。用于正式公开投放前，还需要接入中央数据库或样本平台的数据回传接口。
+    <div class="notice small">
+      本次回答已经写入中央数据库。本浏览器仍保留本地副本，用于技术故障恢复。
     </div>
     <p class="small muted">测试 ID：${esc(state.respondent_id)}</p>
     <div class="actions">
