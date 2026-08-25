@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CAV Survey 管理员账号设置</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--text:#182230;--muted:#667085;--border:#d9e0e8;--accent:#315f96;--danger:#b42318;--ok:#16794a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Arial,sans-serif}
+.wrap{max-width:620px;margin:70px auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px;box-shadow:0 8px 28px rgba(16,24,40,.08)}
+h1{font-size:24px;margin:0 0 10px}
+p{line-height:1.7}
+label{display:block;font-weight:600;margin:14px 0 6px}
+input{width:100%;padding:11px 12px;border:1px solid var(--border);border-radius:10px;font-size:15px}
+button{margin-top:18px;border:0;border-radius:10px;padding:12px 18px;background:var(--accent);color:#fff;font-size:15px;cursor:pointer}
+button:disabled{opacity:.5;cursor:not-allowed}
+.box{margin-top:16px;padding:12px 14px;border-radius:10px;background:#f8fafc;border:1px solid var(--border);white-space:pre-wrap;word-break:break-word;font-size:13px}
+.ok{background:#edf8f1;border-color:#a8d5b9;color:var(--ok)}
+.err{background:#fff1f0;border-color:#efb3ad;color:var(--danger)}
+.small{font-size:13px;color:var(--muted)}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>管理员账号设置</h1>
+    <p>此页面仅用于第一次接受 Supabase 管理员邀请并设置密码。</p>
+    <div id="status" class="box">正在检查邀请链接……</div>
+
+    <div id="form" class="hidden">
+      <label for="pw1">设置管理员密码</label>
+      <input id="pw1" type="password" autocomplete="new-password" minlength="10" placeholder="至少 10 位，建议包含大小写字母、数字和符号">
+
+      <label for="pw2">再次输入密码</label>
+      <input id="pw2" type="password" autocomplete="new-password" minlength="10" placeholder="再次输入相同密码">
+
+      <button id="setBtn">设置密码并激活账号</button>
+    </div>
+
+    <p class="small">不要把管理员密码、Secret Key 或 service_role key 放入 GitHub。</p>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+const SUPABASE_URL = "https://rdrmuuemliyvqpkrhtax.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_T_Au-ACIjNWpOBTdB01rhg_mpZ2-zAj";
+
+const statusBox = document.getElementById("status");
+const form = document.getElementById("form");
+const btn = document.getElementById("setBtn");
+
+function parseHash(){
+  const raw = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+  return new URLSearchParams(raw);
+}
+
+const hash = parseHash();
+const accessToken = hash.get("access_token");
+const errorCode = hash.get("error_code");
+const errorDescription = hash.get("error_description");
+
+if(errorCode || errorDescription){
+  statusBox.className = "box err";
+  statusBox.textContent =
+    "邀请链接无效或已经过期。\n\n" +
+    (errorDescription ? decodeURIComponent(errorDescription.replace(/\+/g," ")) : errorCode || "") +
+    "\n\n请返回 Supabase 重新发送一封新的邀请邮件。";
+} else if(!accessToken){
+  statusBox.className = "box err";
+  statusBox.textContent =
+    "没有检测到有效的管理员邀请会话。\n\n" +
+    "请不要直接打开这个页面。应当从最新的 Supabase 邀请邮件中点击 Accept invitation 进入。";
+} else {
+  statusBox.className = "box ok";
+  statusBox.textContent = "邀请已验证。现在请设置管理员密码。";
+  form.classList.remove("hidden");
+}
+
+async function setPassword(){
+  const pw1 = document.getElementById("pw1").value;
+  const pw2 = document.getElementById("pw2").value;
+
+  if(pw1.length < 10){
+    statusBox.className = "box err";
+    statusBox.textContent = "密码至少需要 10 位。";
+    return;
+  }
+  if(pw1 !== pw2){
+    statusBox.className = "box err";
+    statusBox.textContent = "两次输入的密码不一致。";
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = "正在设置……";
+
+  try{
+    const res = await fetch(SUPABASE_URL + "/auth/v1/user", {
+      method: "PUT",
+      headers: {
+        "apikey": SUPABASE_PUBLISHABLE_KEY,
+        "Authorization": "Bearer " + accessToken,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ password: pw1 })
+    });
+
+    const text = await res.text();
+    let data = {};
+    try{ data = text ? JSON.parse(text) : {}; }catch{}
+
+    if(!res.ok){
+      throw new Error((data && (data.msg || data.message || data.error_description)) || text || ("HTTP " + res.status));
+    }
+
+    statusBox.className = "box ok";
+    statusBox.textContent =
+      "管理员账号已激活，密码设置成功。\n\n" +
+      "User UID： " + (data.id || "请到 Supabase → Authentication → Users 查看") +
+      "\n\n下一步可以关闭本页面。";
+    form.classList.add("hidden");
+    history.replaceState(null, "", window.location.pathname);
+
+  }catch(err){
+    statusBox.className = "box err";
+    statusBox.textContent =
+      "密码设置失败。\n\n" +
+      String(err && err.message ? err.message : err) +
+      "\n\n如果邀请已过期，请重新发送邀请。";
+  }finally{
+    btn.disabled = false;
+    btn.textContent = "设置密码并激活账号";
+  }
+}
+
+btn.addEventListener("click", setPassword);
+</script>
+</body>
+</html>
