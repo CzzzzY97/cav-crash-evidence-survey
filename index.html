@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>CAV 严重事故证据治理问卷</title>
+<title>网联自动驾驶汽车（CAV）严重事故证据治理问卷</title>
 <style>
 :root{
   --bg:#f4f6f8;--card:#fff;--text:#182230;--muted:#667085;--border:#d9e0e8;
@@ -50,6 +50,15 @@ p{margin:8px 0}
 }
 .profile{display:grid;gap:11px}
 .profile-block strong{display:block;margin-bottom:4px}
+.profile-summary{
+  font-weight:750;font-size:15px;color:var(--text);
+  padding:8px 10px;background:#f1f5f9;border-radius:8px;margin:7px 0 8px;
+}
+.profile-detail{color:#344054}
+.profile-guide{
+  padding:10px 12px;border:1px dashed #b8c4d4;background:#fbfcfe;
+  border-radius:10px;margin:10px 0 14px;font-size:13px;color:#475467
+}
 .question{padding:15px 0;border-top:1px solid #edf0f4}
 .question:first-child{border-top:none}
 .qtext{font-weight:600;margin-bottom:9px}
@@ -111,7 +120,7 @@ select,input[type=number],input[type=text]{
 <div class="shell">
   <div class="topbar">
     <div class="brand">
-      <span>CAV 严重事故证据治理问卷</span>
+      <span>网联自动驾驶汽车（CAV）严重事故证据治理问卷</span>
       <span class="mode" id="modeLabel"></span>
     </div>
     <div class="progress"><div id="progressBar"></div></div>
@@ -126,8 +135,9 @@ select,input[type=number],input[type=text]{
    0. CONFIG
    ========================================================= */
 const CONFIG = {
-  VERSION: "1.2-online-cloud-submit",
-  STORAGE_KEY: "cav_survey_state_v10",
+  VERSION: "2.0-final",
+  STUDY_PHASE: "main",
+  STORAGE_KEY: "cav_survey_state_final_main",
   ACCEPTED_KEY: "cav_survey_accepted_v10",
   BLOCKED_KEY: "cav_survey_blocked_v10",
   PID_PARAM: "pid",
@@ -170,61 +180,80 @@ const CLOUD = {
 };
 
 const params = new URLSearchParams(location.search);
-const isAdmin = params.get("admin") === "1";
+const isAdmin = false; // legacy local admin disabled; use /admin.html
 const isDebug = params.get("debug") === "1";
-document.getElementById("modeLabel").textContent = isAdmin ? "本机管理页" : "正式问卷结构 · 本地测试数据";
+document.getElementById("modeLabel").textContent = "在线问卷 · 云端提交";
 
 /* =========================================================
    1. EXPERIMENTAL MATERIAL
    ========================================================= */
 const A = {
-  1: "事故调查使用车辆和自动驾驶系统记录的核心运行信息，包括自动驾驶状态、车辆位置与轨迹、速度、加速度、事故发生时间等。",
-  2: "事故调查使用核心运行信息，并使用事故相关时段的车外视频、环境感知记录，以及与事故相关的道路设施或车路通信记录。",
-  3: "事故调查使用核心运行信息、车外视频、环境感知和道路设施/车路通信记录，并使用事故相关时段的自动驾驶系统关键决策与控制记录、软件版本、人机交互或远程控制记录，以及车内视频/语音或安全员/乘员状态记录。"
+  1: "使用车辆和自动驾驶系统的核心运行记录，包括自动驾驶状态、车辆位置与轨迹、速度、加速度和事故发生时间等。",
+  2: "使用核心运行记录，并使用事故相关时段的车外视频、环境感知记录，以及与事故有关的道路设施或车路通信记录。",
+  3: "使用核心运行记录、车外与道路环境记录，并进一步使用事故相关时段的自动驾驶系统关键决策与控制记录、软件版本、人机交互或远程控制记录，以及车内视频/语音或安全员、乘员状态记录。"
+};
+
+const A_SUMMARY = {
+  1: "核心运行记录",
+  2: "核心运行记录 + 车外与道路环境记录",
+  3: "核心运行记录 + 车外与道路环境记录 + 系统决策与车内交互记录"
 };
 
 const B = {
-  1: "相关企业依法保存事故原始记录，并按事故调查部门要求提交事故说明和所需材料；事故调查部门对企业提交的相关材料进行审查，并可依法要求补充。",
-  2: "相关企业依法保存事故原始记录。严重事故发生后，事故调查部门可按照规定直接调取标准化原始记录。",
-  3: "相关企业依法保存事故原始记录。事故调查部门可按照规定直接调取标准化原始记录，并可委托专业核验机构对相关数字证据的完整性、一致性及提取过程进行技术核验并出具专业意见。事故调查和最终责任认定仍由有权机关依法完成。"
+  1: "相关企业保存事故原始记录，并根据事故调查部门要求提交相关材料；事故调查部门主要依据企业提交的材料进行审查，并可要求补充。",
+  2: "相关企业保存事故原始记录；严重事故发生后，事故调查部门可按照规定直接调取标准化原始记录。",
+  3: "相关企业保存事故原始记录；事故调查部门可按照规定直接调取标准化原始记录，并可委托专业核验机构对数字证据的完整性、一致性和提取过程进行技术核验。最终事故调查和责任认定仍由有权机关依法完成。"
+};
+
+const B_SUMMARY = {
+  1: "企业提交材料 → 调查部门审查",
+  2: "调查部门可直接调取标准化原始记录",
+  3: "直接调取原始记录 + 专业机构技术核验"
 };
 
 const C = {
   1: "明确事故数据的调查用途、保管主体和保存期限，并按照现行规定保护相关信息。",
-  2: "明确事故数据的调查用途、保管主体和保存期限；仅在事故发生后按调查所需的最小范围访问数据，对与调查无关的人脸、车牌和车内信息进行遮蔽或去标识，并设置访问权限，完整记录每次访问。",
-  3: "明确事故数据的调查用途、保管主体和保存期限；仅按调查所需的最小范围访问并对无关信息进行遮蔽或去标识，设置访问权限和完整访问记录；同时定期审计访问记录，对超范围访问或信息泄露进行追责，相关人员可查询数据处理规则，并可提出更正或投诉并获得处理结果。"
+  2: "明确调查用途、保管主体和保存期限；事故发生后仅按调查所需的最小范围访问数据，对与调查无关的人脸、车牌和车内信息进行遮蔽或去标识，并按角色设置访问权限、完整记录每次访问。",
+  3: "明确调查用途、保管主体和保存期限；仅按调查所需的最小范围访问并对无关信息进行遮蔽或去标识，设置访问权限并完整记录每次访问；同时定期审计访问记录，对超范围访问或信息泄露进行追责，相关人员可查询数据处理规则，并可提出更正或投诉并获得处理结果。"
+};
+
+const C_SUMMARY = {
+  1: "用途、保管主体和保存期限",
+  2: "最小必要访问 + 去标识 + 权限与访问记录",
+  3: "上述措施 + 定期审计 + 违规追责 + 查询/更正/投诉渠道"
 };
 
 const VIGNETTE_ITEMS = [
-  ["pea_s","总体而言，这一方案提供的证据足以支持查清事故经过并形成有依据的调查结论。"],
-  ["pp_s","这一方案所访问的数据范围与查清该事故的需要是相称的。"],
+  ["pea_s","总体而言，这一方案提供的证据足以查清事故经过，并支持形成有依据的调查结论。"],
+  ["pp_s","总体而言，这一方案访问的数据范围与查清该事故所需的信息相匹配。"],
   ["pf_s","总体而言，我认为这一方案获取、核验和处理事故证据的程序是公平的。"],
-  ["gl_s","总体而言，我认为这一方案作为 CAV 严重事故证据治理规则是合理且正当的。"],
-  ["ps_s","我支持在类似 CAV 严重事故中采用这一证据治理方案。"]
+  ["gl_s","总体而言，我认为将这一方案作为 CAV 严重事故证据治理规则是合理且正当的。"],
+  ["ps_s","我支持在类似的 CAV 严重事故中采用这一证据治理方案。"]
 ];
 
 const DEEP_ITEMS = [
   ["pea1","在这一方案下，可获得的证据足以还原事故发生的关键过程。"],
   ["pea2","在这一方案下，可获得的证据足以识别可能与事故发生有关的重要因素。"],
   ["pea3","总体而言，这一方案能够为形成有充分依据的事故调查结论提供足够的证据基础。"],
-  ["pp1","这一方案所访问的数据与严重事故调查这一目的相匹配。"],
+  ["pp1","这一方案访问的数据范围与严重事故调查的目的相匹配。"],
   ["pp2","这一方案访问的数据范围没有明显超出查清事故所必需的程度。"],
   ["pp3","考虑到事故的严重性和调查目的，我认为这一方案的数据访问程度总体上是适度的。"],
   ["pf1","这一方案中的证据访问和核验程序能够尽量避免明显偏向任何一方。"],
-  ["pf2","这一方案中的证据处理过程依据清晰、可追踪的规则进行。"],
-  ["pf3","如果出现不当的数据访问或处理，相关人员有机会提出异议并获得纠正。"],
+  ["pf2","这一方案中的证据处理过程遵循清晰、可追踪的规则。"],
+  ["pf3","如果出现不当的数据访问或处理，相关人员有渠道提出异议并获得纠正。"],
   ["gl1","这一方案是处理类似 CAV 严重事故证据的一种适当制度安排。"],
   ["gl2","从公共安全治理的角度看，这一方案是正当的。"],
   ["gl3","这一方案符合我对合理公共治理规则的基本期待。"],
-  ["ps1","我支持在类似 CAV 严重事故中采用这一方案。"],
+  ["ps1","我支持在类似的 CAV 严重事故中采用这一方案。"],
   ["ps2","我赞成将这一方案纳入 CAV 严重事故调查的正式制度安排。"],
   ["ps3","如果这一方案未来被正式实施，我总体上会支持其执行。"]
 ];
 
 const ATTITUDE_ITEMS = [
-  ["pc1","当机构收集我的个人信息时，我通常会比较在意。"],
+  ["pc1","当机构收集我的个人信息时，我会关注这些信息将被如何使用。"],
   ["pc2","我担心机构可能收集超出实际需要的个人信息。"],
-  ["pc3","在提供个人信息前，我通常会考虑这些信息是否真的有必要被收集。"],
+  ["pc3","在提供个人信息前，我通常会考虑这些信息是否确有必要被收集。"],
+  ["pc4","我担心个人信息一旦被机构收集，自己将难以控制这些信息之后被如何使用。"],
   ["gt1","我认为交通安全监管机构具备履行监管职责所需的专业能力。"],
   ["gt2","我认为交通安全监管机构通常会把公众安全利益放在重要位置。"],
   ["gt3","我认为交通安全监管机构通常会诚实、守规则地履行职责。"],
@@ -311,17 +340,29 @@ function median(xs){
   return a.length%2?a[m]:(a[m-1]+a[m])/2;
 }
 
-function radioLikert(name,value){
+function radioLikert(name,value,labels=["完全不同意","中立/不确定","完全同意"]){
   return `<div class="likert">${[1,2,3,4,5,6,7].map(n=>
     `<label><input type="radio" name="${esc(name)}" value="${n}" ${String(value)===String(n)?"checked":""}><span>${n}</span></label>`
   ).join("")}</div>
-  <div class="likert-labels"><span>完全不同意</span><span>中立/不确定</span><span>完全同意</span></div>`;
+  <div class="likert-labels"><span>${esc(labels[0])}</span><span>${esc(labels[1])}</span><span>${esc(labels[2])}</span></div>`;
 }
 function profileHtml(p){
   return `<div class="profile">
-    <div class="profile-block"><strong>【事故调查使用哪些证据】</strong>${esc(A[p.A])}</div>
-    <div class="profile-block"><strong>【谁可以访问和核验证据】</strong>${esc(B[p.B])}</div>
-    <div class="profile-block"><strong>【如何保护和约束数据访问】</strong>${esc(C[p.C])}</div>
+    <div class="profile-block">
+      <strong>① 事故调查使用哪些证据</strong>
+      <div class="profile-summary">本方案规定：${esc(A_SUMMARY[p.A])}</div>
+      <div class="profile-detail">${esc(A[p.A])}</div>
+    </div>
+    <div class="profile-block">
+      <strong>② 谁可以访问和核验证据</strong>
+      <div class="profile-summary">本方案规定：${esc(B_SUMMARY[p.B])}</div>
+      <div class="profile-detail">${esc(B[p.B])}</div>
+    </div>
+    <div class="profile-block">
+      <strong>③ 如何保护和约束数据访问</strong>
+      <div class="profile-summary">本方案规定：${esc(C_SUMMARY[p.C])}</div>
+      <div class="profile-detail">${esc(C[p.C])}</div>
+    </div>
   </div>`;
 }
 
@@ -338,7 +379,7 @@ function debugHtml(){
     respondent=${esc(state.respondent_id)}<br>
     page=${esc(state.page)}<br>
     block=${esc(state.block_id||"")}<br>profiles=${esc(state.profiles.map(p=>p.profile_id).join(", "))}<br>
-    deep=${esc(state.profiles[state.deep_profile_index]?.profile_id||"")}
+    deep=${esc(state.profiles[state.deep_profile_index]?.profile_id||"")}<br>phase=${esc(state.study_phase||"")}<br>source=${esc(state.recruitment_source||"")}
   </div>`;
 }
 
@@ -346,7 +387,9 @@ function debugHtml(){
    3. STATE + RANDOMIZATION
    ========================================================= */
 function newState(){
-  const pid=params.get(CONFIG.PID_PARAM)||"";
+  const liveParams=new URLSearchParams(location.search);
+  const pid=(liveParams.get(CONFIG.PID_PARAM)||"").trim();
+  const recruitmentSource=pid ? "panel" : "direct";
   const rid=pid?"pid:"+pid:uuid();
   const seed=hashString(rid+"|cav-final-v11");
   const rand=mulberry32(seed);
@@ -364,6 +407,8 @@ function newState(){
 
   return {
     version:CONFIG.VERSION,
+    study_phase:CONFIG.STUDY_PHASE,
+    recruitment_source:recruitmentSource,
     respondent_id:rid,
     platform_pid:pid,
     seed,
@@ -407,8 +452,57 @@ try{
 }catch{
   state=newState();
 }
+if(!state.study_phase)state.study_phase=CONFIG.STUDY_PHASE;
+if(!state.recruitment_source)state.recruitment_source=state.platform_pid?"panel":"direct";
 function save(){localStorage.setItem(CONFIG.STORAGE_KEY,JSON.stringify(state))}
 function resetCurrent(){localStorage.removeItem(CONFIG.STORAGE_KEY);state=newState();save();render()}
+
+function startNewResponse(){
+  // No device fingerprinting or device-level participation cap.
+  // If an old panel PID is present, remove it before creating a new independent response.
+  localStorage.removeItem(CONFIG.STORAGE_KEY);
+  const u=new URL(location.href);
+  u.searchParams.delete(CONFIG.PID_PARAM);
+  u.searchParams.delete("debug");
+  u.searchParams.delete("admin");
+  history.replaceState(null,"",u.pathname+(u.search?u.search:""));
+  state=newState();
+  save();
+  render();
+}
+
+function newResponseButton(label="由另一位参与者在本设备开始新问卷"){
+  // Panel-linked sessions should receive their next participant through a fresh platform URL/PID.
+  if(state.platform_pid)return "";
+  return `<button class="secondary" id="newResponse">${esc(label)}</button>`;
+}
+
+function minimizeFinalLocalState(page){
+  // After a successful cloud write, keep only a small completion marker locally.
+  // Full answers remain in Supabase, reducing privacy exposure on shared devices.
+  state={
+    version:state.version,
+    study_phase:state.study_phase||CONFIG.STUDY_PHASE,
+    recruitment_source:state.recruitment_source||(state.platform_pid?"panel":"direct"),
+    respondent_id:state.respondent_id,
+    platform_pid:state.platform_pid||"",
+    page,
+    completed:page==="complete",
+    blocked:page==="blocked",
+    blocked_reason:state.blocked_reason||null,
+    screenout_reason:state.screenout_reason||null,
+    submitted_at:state.submitted_at||state.blocked_at||nowISO(),
+    quality:state.quality ? {
+      pass:state.quality.pass,
+      score:state.quality.score,
+      flags:state.quality.flags||[],
+      hard_reasons:state.quality.hard_reasons||[]
+    } : null,
+    cloud:state.cloud||null
+  };
+  save();
+}
+
 function getAccepted(){try{return JSON.parse(localStorage.getItem(CONFIG.ACCEPTED_KEY))||[]}catch{return[]}}
 function getBlocked(){try{return JSON.parse(localStorage.getItem(CONFIG.BLOCKED_KEY))||[]}catch{return[]}}
 function putAccepted(rows){localStorage.setItem(CONFIG.ACCEPTED_KEY,JSON.stringify(rows))}
@@ -486,8 +580,10 @@ async function postToSupabase(status){
   const row = {
     respondent_id: state.respondent_id,
     platform_pid: state.platform_pid || null,
-    block_id: state.block_id || null,
+    block_id: status==="screened_out" ? null : (state.block_id || null),
     survey_version: state.version || CONFIG.VERSION,
+    study_phase: state.study_phase || CONFIG.STUDY_PHASE,
+    recruitment_source: state.recruitment_source || (state.platform_pid ? "panel" : "direct"),
     status,
     payload: snapshot,
     quality: state.quality || null,
@@ -587,6 +683,19 @@ async function submitRejectedToCloud(){
   }catch(err){
     // A rejected response must remain rejected even if cloud logging fails.
     setCloudError("quality_rejected",err);
+    return false;
+  }
+}
+
+async function submitScreenoutToCloud(){
+  setCloudPending("screened_out");
+  try{
+    const res=await postToSupabase("screened_out");
+    setCloudSuccess("screened_out",res);
+    return true;
+  }catch(err){
+    // Screening-out must never trap the participant on a technical retry page.
+    setCloudError("screened_out",err);
     return false;
   }
 }
@@ -845,6 +954,7 @@ function exportQuality(rows){
    8. QUESTIONNAIRE ROUTER
    ========================================================= */
 function render(){
+  window.scrollTo({top:0,left:0,behavior:"auto"});
   setProgress(pageProgress());
   if(state.page==="consent")return renderConsent();
   if(state.page==="intro")return renderIntro();
@@ -859,6 +969,7 @@ function render(){
   if(state.page==="repeat")return renderRepeat();
   if(state.page==="demographics")return renderDemographics();
   if(state.page==="complete")return renderComplete();
+  if(state.page==="screenout")return renderScreenout();
   if(state.page==="cloudError")return renderCloudError();
   if(state.page==="blocked")return renderBlocked();
 }
@@ -869,8 +980,8 @@ function render(){
 function renderConsent(){
   pageEnter("consent");
   app.innerHTML=`<section class="card">
-    <h1>中国公众对 CAV 严重事故证据治理制度的评价</h1>
-    <p>您好！本研究关注公众如何评价网联自动驾驶汽车（CAV）在发生严重交通事故后的事故证据治理制度。</p>
+    <h1>网联自动驾驶汽车（CAV）严重事故证据治理问卷</h1>
+    <p>您好！本研究希望了解公众如何看待网联自动驾驶汽车（CAV）发生严重交通事故后，事故相关数据应如何用于调查。</p>
     <div class="notice">本问卷仅用于学术研究，不要求您判断现实事故责任，也不测试专业知识。预计完成时间约 10–12 分钟。</div>
     <p class="muted small">问卷不收集身份证号、精确住址、车牌等直接身份信息。参与完全自愿，您可随时退出。</p>
 
@@ -890,8 +1001,8 @@ function renderConsent(){
       <label class="option"><input type="radio" name="mainland" value="no"> 否</label>
     </div>
     <div class="question">
-      <div class="qtext">4. 过去 12 个月，您是否至少每月以以下任一种方式参与道路交通？（可多选）</div>
-      ${checkboxList("traffic",["驾驶机动车","乘坐机动车","骑自行车","骑电动自行车/其他微出行工具","步行","以上均没有"])}
+      <div class="qtext">4. 过去 12 个月，您是否通常至少每月通过以下任一种方式参与道路交通？（可多选）</div>
+      ${checkboxList("traffic",["驾驶机动车","乘坐机动车（作为乘客）","骑自行车","骑电动自行车/其他微出行工具","步行","以上均没有"])}
     </div>
 
     <label class="hp" aria-hidden="true">请留空<input type="text" id="websiteField" autocomplete="off" tabindex="-1"></label>
@@ -906,24 +1017,65 @@ function renderConsent(){
     if(el.value!=="5"&&el.checked){const none=boxes.find(x=>x.value==="5");if(none)none.checked=false}
   }));
 
-  $("#next").onclick=()=>{
+  $("#next").onclick=async()=>{
     clearError();
     pageLeave("consent");
     state.honeypot=$("#websiteField").value||"";
     const c=getTextRadio("consent"),a=getTextRadio("age18"),m=getTextRadio("mainland");
     const t=[...document.querySelectorAll('input[name="traffic"]:checked')].map(x=>x.value);
     if(!c||!a||!m||!t.length)return showError("请完成本页所有问题。");
-    if(c!=="yes"||a!=="yes"||m!=="yes"||t.includes("5")){
-      state.blocked=true;state.blocked_reason="eligibility_screenout";
-      return showScreenout();
-    }
+
     state.screening={consent:c,age18:a,mainland:m,traffic_roles:t};
+
+    // No consent: do not transmit or retain a research record.
+    if(c!=="yes"){
+      localStorage.removeItem(CONFIG.STORAGE_KEY);
+      return renderNonStoredScreenout("您选择不参加本研究，本页面不会上传本次作答信息。");
+    }
+
+    // Under 18: do not transmit or retain a research record.
+    if(a!=="yes"){
+      localStorage.removeItem(CONFIG.STORAGE_KEY);
+      return renderNonStoredScreenout("根据本研究的年龄条件，本次问卷到此结束。本页面不会上传本次作答信息。");
+    }
+
+    // Adult consenting respondents who are otherwise outside the target sample
+    // may be counted as screened-out, without entering the experiment.
+    if(m!=="yes"||t.includes("5")){
+      state.screenout_reason=m!=="yes" ? "not_mainland_resident" : "no_regular_road_participation";
+      state.page="screenout";
+      state.submitted_at=nowISO();
+      state.duration_sec=Math.round((Date.now()-state.start_ms)/1000);
+      save();
+      const ok=await submitScreenoutToCloud();
+      if(ok)minimizeFinalLocalState("screenout");
+      return renderScreenout();
+    }
+
     state.page="intro";save();render();
   };
 }
-function showScreenout(){
-  save();
-  app.innerHTML=`<section class="card"><h2>感谢您的时间</h2><p>根据本研究的样本条件，本次问卷到此结束。</p></section>`;
+
+function renderNonStoredScreenout(message){
+  setProgress(1);
+  app.innerHTML=`<section class="card">
+    <h2>感谢您的时间</h2>
+    <p>${esc(message)}</p>
+    <div class="actions">
+      <button class="secondary" id="newResponse">由另一位参与者在本设备开始新问卷</button>
+    </div>
+  </section>`;
+  $("#newResponse").onclick=startNewResponse;
+}
+
+function renderScreenout(){
+  setProgress(1);
+  app.innerHTML=`<section class="card">
+    <h2>感谢您的时间</h2>
+    <p>根据本研究的样本条件，本次问卷到此结束。</p>
+    <div class="actions">${newResponseButton()}</div>
+  </section>`;
+  if($("#newResponse"))$("#newResponse").onclick=startNewResponse;
 }
 
 /* =========================================================
@@ -933,21 +1085,27 @@ function renderIntro(){
   pageEnter("intro");
   app.innerHTML=`<section class="card">
     <h2>研究说明</h2>
-    <p>本研究中的“网联自动驾驶汽车（CAV）”是指能够在规定条件下由自动驾驶系统完成驾驶任务，同时可与道路设施、其他车辆或云平台进行信息交互的车辆。</p>
-    <p>严重交通事故发生后，与事故有关的记录可能分散在车辆、自动驾驶系统、道路设施和运营平台中。</p>
-    <p>后续不同方案只在三个方面不同：<b>事故调查使用哪些证据、谁可以访问和核验证据、这些数据访问如何受到隐私和问责约束。</b></p>
-    <div class="notice">请从普通道路使用者和社会公众的角度评价后续方案。您无需假设自己拥有涉事 CAV，也无需假设自己是事故当事人。</div>
+    <p>本问卷中的“<b>网联自动驾驶汽车（CAV）</b>”，是指能够在规定条件下由自动驾驶系统执行驾驶任务，并可与道路设施、其他车辆或云平台进行信息交互的车辆。</p>
+    <p>严重道路交通事故发生后，与事故有关的数据可能分散保存在车辆、自动驾驶系统、路侧设施和运营平台中。这些数据可以用于还原事故经过，也可能涉及个人信息或企业数据。</p>
 
-    <h3>问卷中的主体</h3>
-    <div class="subject-def"><b>相关企业：</b>例如事故车辆生产企业、车辆运营/使用主体，以及实际保存相关车辆或平台记录的企业。</div>
-    <div class="subject-def"><b>事故调查部门：</b>主要指事故发生地公安机关交通管理部门，例如当地交警支队或交警大队；涉及车辆产品或运营安全问题时，工业和信息化、交通运输等部门还可能按职责参与后续监管。</div>
-    <div class="subject-def"><b>专业核验机构：</b>由事故调查部门根据调查需要委托或组织的、具备相应专业资质或技术能力的鉴定/技术机构。其提供专业核验意见，不负责最终事故责任认定。</div>
+    <div class="notice">
+      接下来您将看到 <b>4 个不同的事故证据治理方案</b>。四个方案中的事故情景完全相同，只在以下三项规定上有所不同：
+      <br><b>① 调查使用哪些事故证据；</b>
+      <br><b>② 谁可以访问和核验证据；</b>
+      <br><b>③ 数据访问受到哪些隐私保护和责任约束。</b>
+    </div>
+    <p>请从普通道路使用者和社会公众的角度，根据每个方案的具体规定作出评价。没有标准答案，您也不需要判断事故中任何一方应承担什么法律责任。</p>
 
-    <div class="question"><div class="qtext">理解题 1：以下哪项最符合本研究所说的 CAV 事故证据？</div>
+    <h3>问卷中的三个主体</h3>
+    <div class="subject-def"><b>相关企业：</b>主要指事故车辆生产企业、车辆运营或使用主体，以及实际保存相关事故数据的平台或服务企业。</div>
+    <div class="subject-def"><b>事故调查部门：</b>主要指事故发生地公安机关交通管理部门，例如当地交警支队或交警大队。其依法负责道路交通事故调查处理和事故认定；如事故还涉及智能网联汽车产品安全、运输经营等问题，工业和信息化、交通运输等主管部门可按职责参与后续监管。</div>
+    <div class="subject-def"><b>专业核验机构：</b>指受事故调查部门委托、具备相应专业技术能力的机构，对数字证据的完整性、一致性或提取过程进行技术核验并提供技术意见，但不负责作出道路交通事故认定。</div>
+
+    <div class="question"><div class="qtext">理解题 1：以下哪项最符合本问卷所说的 CAV 事故证据？</div>
       ${optionList("c1",["仅包括驾驶员口头陈述","可能来自车辆、自动驾驶系统、道路设施和运营平台的事故相关记录","仅包括交通警察现场拍摄的照片","不确定"])}
     </div>
-    <div class="question"><div class="qtext">理解题 2：接下来不同方案主要比较什么？</div>
-      ${optionList("c2",["CAV 品牌和价格","哪一方应该承担事故法律责任","事故证据范围、访问/核验方式及隐私问责保障","自动驾驶汽车是否应该被禁止"])}
+    <div class="question"><div class="qtext">理解题 2：接下来的 4 个方案主要在哪些方面存在差异？</div>
+      ${optionList("c2",["CAV 的品牌、价格和性能","哪一方应承担事故法律责任","事故证据范围、谁可以访问和核验、以及隐私和责任保障","是否应允许 CAV 上路运行"])}
     </div>
     <div class="actions"><button class="primary" id="next">继续</button></div>
     ${debugHtml()}
@@ -963,7 +1121,7 @@ function renderIntro(){
     pageLeave("intro");
 
     const c1ok=c1==="可能来自车辆、自动驾驶系统、道路设施和运营平台的事故相关记录";
-    const c2ok=c2==="事故证据范围、访问/核验方式及隐私问责保障";
+    const c2ok=c2==="事故证据范围、谁可以访问和核验、以及隐私和责任保障";
     const fails=Number(!c1ok)+Number(!c2ok);
     state.comprehension.first={c1,c2,c1_correct:c1ok,c2_correct:c2ok};
     state.comprehension.first_fail_count=fails;
@@ -981,15 +1139,15 @@ function renderComprehensionRetry(){
   app.innerHTML=`<section class="card">
     <h2>请确认您已理解研究说明</h2>
     <div class="warning">
-      CAV 事故证据可能来自车辆、自动驾驶系统、道路设施和运营平台。接下来比较的是<b>证据范围、访问/核验方式，以及隐私与问责保障</b>，而不是车辆品牌或法律责任结论。
+      CAV 事故证据可能来自车辆、自动驾驶系统、道路设施和运营平台。接下来比较的是<b>事故证据范围、谁可以访问和核验证据，以及隐私和责任保障</b>，而不是车辆品牌或法律责任结论。
     </div>
     <p>请根据上面的说明再次回答：</p>
 
     <div class="question"><div class="qtext">1. 本研究所说的事故证据可能来自哪些位置？</div>
       ${optionList("r1",["车辆、自动驾驶系统、道路设施和运营平台","只来自驾驶员口述","只来自现场照片"])}
     </div>
-    <div class="question"><div class="qtext">2. 后续政策方案主要比较什么？</div>
-      ${optionList("r2",["车辆品牌、售价和性能","事故责任由谁承担","证据范围、访问/核验和隐私问责保障"])}
+    <div class="question"><div class="qtext">2. 接下来的方案主要比较什么？</div>
+      ${optionList("r2",["车辆品牌、售价和性能","事故责任由谁承担","事故证据范围、谁可以访问和核验、以及隐私和责任保障"])}
     </div>
     <div class="actions"><button class="primary" id="next">确认并继续</button></div>
   </section>`;
@@ -1000,7 +1158,7 @@ function renderComprehensionRetry(){
     if(!r1||!r2)return showError("请完成两道确认题。");
     pageLeave("comprehensionRetry");
     const ok1=r1==="车辆、自动驾驶系统、道路设施和运营平台";
-    const ok2=r2==="证据范围、访问/核验和隐私问责保障";
+    const ok2=r2==="事故证据范围、谁可以访问和核验、以及隐私和责任保障";
     state.comprehension.retry={r1,r2,r1_correct:ok1,r2_correct:ok2};
     state.comprehension.retry_fail_count=Number(!ok1)+Number(!ok2);
     if(!ok1||!ok2){
@@ -1018,12 +1176,12 @@ function renderScenario(){
   app.innerHTML=`<section class="card">
     <h2>固定事故情景</h2>
     <p>请设想以下情景：</p>
-    <p>一辆已获指定区域试点运行资格的 <b>L4 级网联自动驾驶汽车</b>，在其允许的城市道路条件下由自动驾驶系统执行驾驶任务。</p>
-    <div class="notice">L4 在本问卷中是指：<b>在规定运行条件内，可由自动驾驶系统完成全部动态驾驶任务。</b></div>
-    <p>车辆在一个信号交叉口与一名骑行者发生严重碰撞。事故发生后，车辆、道路感知设备和运营平台均可能保存与事故有关的记录。</p>
-    <p>事故调查部门需要调查事故经过、识别可能存在的系统或管理缺陷，并决定是否需要采取整改、暂停运行或其他安全措施。</p>
-    <p><b>以下不同方案不会改变事故本身，也不会预先确定谁承担法律责任。</b>您只需要评价事故证据应如何被使用和治理。</p>
+    <p>请设想这样一起事故：一辆<b>网联自动驾驶汽车（CAV）</b>正在城市道路上行驶。事故发生时，车辆处于其允许的自动驾驶运行条件内，由自动驾驶系统执行全部驾驶任务，驾驶人无需持续操作车辆。</p>
+    <p>车辆在一个信号交叉口与一名骑自行车者发生碰撞，造成严重人员伤害。事故发生后，需要查明事故经过，并判断车辆运行、自动驾驶系统、道路环境或相关管理因素是否与事故发生有关。</p>
+    <p>车辆、自动驾驶系统、路侧设施和运营平台中可能保存与事故有关的数据记录。</p>
+    <div class="notice"><b>以下 4 个方案中的事故情景完全相同，也不会预先确定任何一方的事故责任。</b>请只评价这些事故数据应如何进入调查、由谁访问和核验，以及数据访问应受到哪些保护和约束。</div>
 
+    <div class="profile-guide">在进入方案评价前，请先回答一道关于一般作答习惯的问题。</div>
     <div class="question">
       <div class="qtext">在填写网络问卷时，我通常会先读清题意再作答。</div>
       ${radioLikert("qo1",state.qo1)}
@@ -1057,8 +1215,9 @@ function renderVignette(i){
   app.innerHTML=`<section class="card">
     <span class="pill">方案 ${i+1} / 4</span>
     <h2>事故证据治理方案</h2>
+    <div class="profile-guide">四个方案对应同一事故情景。请重点查看下面三个方面的“<b>本方案规定</b>”；不同方案的具体规定会发生变化。</div>
     ${profileHtml(p)}
-    <div class="notice small">请根据您刚刚看到的方案作答。1=完全不同意，4=中立/不确定，7=完全同意。</div>
+    <div class="notice small">请只根据当前方案作答。1=完全不同意，4=中立/不确定，7=完全同意。</div>
     ${VIGNETTE_ITEMS.map(([k,t],idx)=>`<div class="question">
       <div class="qtext">${idx+1}. ${esc(t)}</div>${radioLikert("q_"+k,sv[k])}
     </div>`).join("")}
@@ -1093,7 +1252,7 @@ function renderAttention1(){
     <h2>继续评价</h2>
     <p class="muted">下面是一道普通作答确认题。</p>
     <div class="question">
-      <div class="qtext">为确认您正在认真阅读，请在本题选择“比较同意（5）”。</div>
+      <div class="qtext">为确认您正在阅读题目，请在本题选择“5”。</div>
       ${radioLikert("ac1",state.attention.ac1)}
     </div>
     <div class="actions"><button class="primary" id="next">继续</button></div>
@@ -1116,7 +1275,7 @@ function renderDeep(){
 
   app.innerHTML=`<section class="card">
     <h2>进一步评价一个已看过的方案</h2>
-    <p class="muted">系统从您刚刚评价过的 4 个方案中抽取了一个。请继续针对同一方案作答。</p>
+    <p class="muted">系统从您刚刚评价过的 4 个方案中抽取了一个。请重新查看当前方案的三项具体规定，并继续针对同一方案作答。</p>
     ${profileHtml(p)}
     <div class="notice small">以下题目统一使用 1=完全不同意 至 7=完全同意。</div>
     ${DEEP_ITEMS.map(([k,t],idx)=>`<div class="question">
@@ -1152,13 +1311,23 @@ function renderAttitudes(){
     </div>`).join("")}
 
     <div class="question">
-      <div class="qtext">10. 在阅读本问卷前，您对“自动驾驶汽车/智能网联汽车”的了解程度如何？</div>
-      ${radioLikert("a_cav_familiarity",state.attitudes.cav_familiarity)}
+      <div class="qtext">11. 在填写本问卷前，您对“网联自动驾驶汽车（CAV）”的了解程度如何？</div>
+      ${radioLikert("a_cav_familiarity",state.attitudes.cav_familiarity,["完全不了解","一般了解","非常了解"])}
     </div>
 
     <div class="question">
-      <div class="qtext">11. 您是否有以下相关体验？（可多选）</div>
-      ${checkboxList("cavexp",["使用过 L2/L2+ 高级辅助驾驶功能","乘坐过自动驾驶出租车/示范车辆","工作或学习中接触过自动驾驶/智能交通","仅通过新闻、网络等有所了解","基本没有相关体验"],state.attitudes.cav_experience)}
+      <div class="qtext">12. 在填写本问卷前，您对“车辆与道路设施或云平台之间进行信息交互（如车路协同）”的了解程度如何？</div>
+      ${radioLikert("a_connected_familiarity",state.attitudes.connected_familiarity,["完全不了解","一般了解","非常了解"])}
+    </div>
+
+    <div class="question">
+      <div class="qtext">13. 您是否有以下相关体验？（可多选）</div>
+      ${checkboxList("cavexp",["使用过具备组合驾驶辅助功能的量产车辆（如自适应巡航、车道居中等）","乘坐过自动驾驶出租车或自动驾驶示范车辆","在工作或学习中接触过自动驾驶/智能交通相关内容","主要通过新闻、网络等渠道了解","基本没有相关体验"],state.attitudes.cav_experience)}
+    </div>
+
+    <div class="question">
+      <div class="qtext">14. 过去两年，您是否遇到过您认为与个人信息泄露或不当使用有关的问题（如骚扰推销、账号异常、未经同意使用个人信息等）？</div>
+      ${optionList("privacyincident",["是","否","不确定","不愿回答"],state.attitudes.privacy_incident)}
     </div>
 
     <div class="actions"><button class="primary" id="next">继续</button></div>
@@ -1174,13 +1343,17 @@ function renderAttitudes(){
   }));
 
   $("#next").onclick=()=>{
-    const names=ATTITUDE_ITEMS.map(([k])=>"a_"+k).concat(["a_cav_familiarity"]);
+    const names=ATTITUDE_ITEMS.map(([k])=>"a_"+k).concat(["a_cav_familiarity","a_connected_familiarity"]);
     if(!requireRadios(names))return;
     const exp=[...document.querySelectorAll('input[name="cavexp"]:checked')].map(x=>x.value);
+    const privacyIncident=getTextRadio("privacyincident");
     if(!exp.length)return showError("请选择至少一项相关体验。");
+    if(!privacyIncident)return showError("请完成本页所有题目。");
     ATTITUDE_ITEMS.forEach(([k])=>state.attitudes[k]=getRadio("a_"+k));
     state.attitudes.cav_familiarity=getRadio("a_cav_familiarity");
+    state.attitudes.connected_familiarity=getRadio("a_connected_familiarity");
     state.attitudes.cav_experience=exp;
+    state.attitudes.privacy_incident=privacyIncident;
     pageLeave("attitudes");
     state.page="attention2";save();render();
   };
@@ -1191,7 +1364,7 @@ function renderAttention2(){
   app.innerHTML=`<section class="card">
     <h2>继续作答</h2>
     <div class="question">
-      <div class="qtext">请在本题选择“不同意（2）”。</div>
+      <div class="qtext">为确认您正在阅读题目，请在本题选择“2”。</div>
       ${radioLikert("ac2",state.attention.ac2)}
     </div>
     <div class="actions"><button class="primary" id="next">继续</button></div>
@@ -1219,12 +1392,12 @@ function renderBackground(){
     </div>
 
     <div class="question">
-      <div class="qtext">2. 过去 12 个月，您最常以哪种方式参与道路交通？</div>
-      ${optionList("primaryrole",["驾驶机动车","机动车乘客","骑自行车","骑电动自行车/其他微出行","步行","其他"],b.primary_traffic_role)}
+      <div class="qtext">2. 过去 12 个月，您最常用以下哪种方式参与道路交通？</div>
+      ${optionList("primaryrole",["驾驶机动车","乘坐机动车（作为乘客）","骑自行车","骑电动自行车/其他微出行","步行","其他"],b.primary_traffic_role)}
     </div>
 
     <div class="question">
-      <div class="qtext">3. 您的实际机动车驾驶经验约为：</div>
+      <div class="qtext">3. 您实际驾驶机动车的年限约为：</div>
       <select id="driving">
         <option value="">请选择</option>
         ${["无实际驾驶经验","不足1年","1–3年","4–6年","7–10年","11–20年","20年以上"].map(x=>`<option value="${x}" ${b.driving_experience===x?"selected":""}>${x}</option>`).join("")}
@@ -1232,8 +1405,8 @@ function renderBackground(){
     </div>
 
     <div class="question">
-      <div class="qtext">4. 过去 5 年，您本人或近亲是否经历过需要报警、保险理赔或医疗处理的道路交通事故？</div>
-      ${optionList("crash",["是","否","不愿回答"],b.crash_experience)}
+      <div class="qtext">4. 过去 5 年，您本人或家庭成员是否经历过需要报警、保险理赔或就医处理的道路交通事故？</div>
+      ${optionList("crash",["本人经历过","家庭成员经历过","本人和家庭成员都经历过","均没有","不愿回答"],b.crash_experience)}
     </div>
 
     <div class="actions"><button class="primary" id="next">继续</button></div>
@@ -1264,7 +1437,7 @@ function renderRepeat(){
   const p=state.profiles[state.deep_profile_index];
   app.innerHTML=`<section class="card">
     <h2>最后一个方案评价</h2>
-    <p class="muted">请再次查看下面这个方案，并完成最后一题。</p>
+    <p class="muted">请再次查看下面这个方案的三项具体规定，并完成最后一题。</p>
     ${profileHtml(p)}
     <div class="question">
       <div class="qtext">我支持在类似 CAV 严重事故中采用这一方案。</div>
@@ -1295,7 +1468,7 @@ function renderDemographics(){
 
     <div class="question">
       <div class="qtext">1. 您的性别：</div>
-      ${optionList("gender",["男","女","其他/不便回答"],d.gender)}
+      ${optionList("gender",["男","女"],d.gender)}
     </div>
 
     <div class="question">
@@ -1334,7 +1507,9 @@ function renderDemographics(){
     const gender=getTextRadio("gender"),age=Number($("#age").value),edu=$("#edu").value,province=$("#province").value,urban=$("#urban").value;
     if(!gender||!Number.isInteger(age)||age<18||age>100||!edu||!province||!urban)return showError("请完整填写本页信息。");
 
-    state.demographics={gender,age,education:edu,province,urban_type:urban};
+    state.demographics={
+      gender,age,education:edu,province,urban_type:urban
+    };
     pageLeave("demographics");
     evaluateAndSubmit();
   };
@@ -1353,23 +1528,16 @@ async function evaluateAndSubmit(){
     return blockNow(state.quality.hard_reasons.join("|")||"quality_gate_failed",true);
   }
 
-  // Lock a completed snapshot locally first.
   state.completed=true;
   state.submitted_at=nowISO();
 
-  // Keep the old local test archive as a backup.
-  const rows=getAccepted();
-  if(!rows.some(r=>r.respondent_id===state.respondent_id)){
-    rows.push(JSON.parse(JSON.stringify(state)));
-    putAccepted(rows);
-  }
-
-  // Critical change: do not show "success" until Supabase confirms receipt.
+  // Critical response path:
+  // keep the full current state locally only until Supabase confirms receipt.
+  save();
   const cloudOk=await submitAcceptedToCloud();
   if(!cloudOk)return;
 
-  state.page="complete";
-  save();
+  minimizeFinalLocalState("complete");
   render();
 }
 
@@ -1381,31 +1549,26 @@ async function blockNow(reason,keepQuality=false){
   state.duration_sec=Math.round((Date.now()-state.start_ms)/1000);
   if(!keepQuality)state.quality=finalQualityDecision(state);
   state.page="blocked";
-
-  const rows=getBlocked();
-  if(!rows.some(r=>r.respondent_id===state.respondent_id)){
-    rows.push(JSON.parse(JSON.stringify(state)));
-    putBlocked(rows);
-  }
   save();
 
-  // Log quality-rejected cases to the central database.
-  // Failure to log does NOT turn a rejected response into an accepted one.
-  await submitRejectedToCloud();
-  render();
+  // Preserve rejected cases centrally for the exclusion audit.
+  const ok=await submitRejectedToCloud();
+  if(ok)minimizeFinalLocalState("blocked");
+  renderBlocked();
 }
 
 function renderBlocked(){
   setProgress(1);
   app.innerHTML=`<section class="card">
-    <h1>本次问卷无法提交</h1>
+    <h1>本次问卷无法作为有效样本提交</h1>
     <div class="dangerbox">
-      系统检测到本次作答未达到研究的数据质量要求，因此无法作为有效问卷提交。
+      系统检测到本次作答未达到研究的数据质量要求，因此不会计入有效样本。
     </div>
     <p>感谢您的时间。为保证研究数据质量，本页面不会显示具体判定规则。</p>
-    <p class="small muted">若您正在进行研究团队内部测试，可通过本机管理页查看质控日志。</p>
     ${isDebug?`<div class="debug">${esc(JSON.stringify(state.quality,null,2))}</div>`:""}
+    <div class="actions">${newResponseButton()}</div>
   </section>`;
+  if($("#newResponse"))$("#newResponse").onclick=startNewResponse;
 }
 
 
@@ -1444,6 +1607,24 @@ function renderCloudError(){
   };
 }
 
+function exitSurvey(){
+  // Clear the current local questionnaire marker on confirmed exit.
+  try{ localStorage.removeItem(CONFIG.STORAGE_KEY); }catch{}
+
+  // Browsers do not always allow script-closing a tab opened by the user.
+  // Try to close first; if blocked, replace the page with a blank terminal page.
+  try{
+    window.open("", "_self");
+    window.close();
+  }catch{}
+
+  setTimeout(()=>{
+    try{ location.replace("about:blank"); }catch{
+      document.body.innerHTML="<main style='font-family:sans-serif;padding:40px;text-align:center'><h2>问卷已结束</h2><p>您现在可以关闭此页面。</p></main>";
+    }
+  },150);
+}
+
 /* =========================================================
    19. COMPLETE
    ========================================================= */
@@ -1451,29 +1632,27 @@ function renderComplete(){
   setProgress(1);
   app.innerHTML=`<section class="card">
     <h1>问卷已成功提交</h1>
-    <div class="successbox">感谢您的参与。本次作答已通过提交前的数据完整性与质量检查。</div>
-    <div class="notice small">
-      本次回答已经写入中央数据库。本浏览器仍保留本地副本，用于技术故障恢复。
-    </div>
-    <p class="small muted">测试 ID：${esc(state.respondent_id)}</p>
+    <div class="successbox">感谢您的参与。本次回答已经成功上传并保存。</div>
+    <p class="small muted">提交编号：${esc(state.respondent_id)}</p>
     <div class="actions">
-      <button class="secondary" id="json">下载本次回答 JSON</button>
-      <button class="secondary" onclick="location.href=location.pathname+'?admin=1'">查看本机管理页</button>
-      <button class="danger" id="reset">重新开始测试</button>
+      <button class="primary" id="exitSurvey">退出问卷</button>
+      ${newResponseButton("再次作答")}
     </div>
   </section>`;
-  $("#json").onclick=()=>download(
-    "cav_response_"+state.respondent_id.replace(/[:/]/g,"_")+".json",
-    JSON.stringify(state,null,2),
-    "application/json;charset=utf-8"
-  );
-  $("#reset").onclick=()=>{if(confirm("重新开始会清除当前进行中的状态，但已完成的测试记录仍保留。继续吗？"))resetCurrent()};
+  $("#exitSurvey").onclick=exitSurvey;
+  if($("#newResponse"))$("#newResponse").onclick=startNewResponse;
 }
 
 /* =========================================================
    20. BOOT
    ========================================================= */
-if(isAdmin)renderAdmin();else render();
+// Cloud admin is now authoritative. Remove legacy local test archives
+// so completed/rejected full answers do not accumulate on shared devices.
+try{
+  localStorage.removeItem(CONFIG.ACCEPTED_KEY);
+  localStorage.removeItem(CONFIG.BLOCKED_KEY);
+}catch{}
+render();
 </script>
 </body>
 </html>

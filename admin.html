@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>CAV Survey 云端管理后台</title>
+<title>CAV Survey 云端管理后台 V1.5</title>
 <style>
 :root{
   --bg:#f4f6f8;--card:#fff;--text:#182230;--muted:#667085;--border:#d9e0e8;
@@ -55,7 +55,7 @@ button:disabled{opacity:.55;cursor:not-allowed}
 .success{background:var(--okSoft);border-left-color:var(--ok)}
 .hidden{display:none!important}
 .grid{
-  display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:11px;margin-top:12px
+  display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:11px;margin-top:12px
 }
 .metric{
   background:#fafbfd;border:1px solid var(--border);border-radius:12px;padding:14px
@@ -118,7 +118,13 @@ code{background:#f2f4f7;padding:2px 5px;border-radius:5px}
         <h1>CAV Survey 云端管理后台</h1>
         <div class="small" id="adminIdentity"></div>
       </div>
-      <div class="actions" style="margin-top:0">
+      <div class="actions" style="margin-top:0;align-items:center">
+        <select id="phaseFilter" style="padding:9px 10px;border:1px solid var(--border);border-radius:9px;background:#fff">
+          <option value="all">全部阶段</option>
+          <option value="development">development</option>
+          <option value="pilot">pilot</option>
+          <option value="main">main</option>
+        </select>
         <button class="secondary" id="refreshBtn">刷新数据</button>
         <button class="danger" id="logoutBtn">退出登录</button>
       </div>
@@ -138,13 +144,32 @@ code{background:#f2f4f7;padding:2px 5px;border-radius:5px}
         <div class="metric"><div class="k">云端总记录</div><div class="v" id="mTotal">—</div></div>
         <div class="metric"><div class="k">完整 completed</div><div class="v" id="mCompleted">—</div></div>
         <div class="metric"><div class="k">quality_rejected</div><div class="v" id="mRejected">—</div></div>
+        <div class="metric"><div class="k">screened_out</div><div class="v" id="mScreened">—</div></div>
         <div class="metric"><div class="k">其他/技术记录</div><div class="v" id="mOther">—</div></div>
-        <div class="metric"><div class="k">completed 中位时长</div><div class="v" id="mDuration">—</div></div>
+        <div class="metric"><div class="k">有效完成率*</div><div class="v" id="mValidRate">—</div></div>
       </div>
       <div class="warning small">
         目前数据库仍包含系统联调和人工测试记录。正式投放前应统一清空测试数据，再冻结问卷版本；本后台故意不提供“删除数据”按钮。
+        *有效完成率 = completed / (completed + quality_rejected)，不含 screened_out 与技术测试记录。
       </div>
     </section>
+
+    <div class="two">
+      <section class="card">
+        <h2>研究阶段</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>study_phase</th><th>N</th></tr></thead>
+          <tbody id="phaseBody"></tbody>
+        </table></div>
+      </section>
+      <section class="card">
+        <h2>招募来源</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>recruitment_source</th><th>N</th></tr></thead>
+          <tbody id="sourceBody"></tbody>
+        </table></div>
+      </section>
+    </div>
 
     <section class="card">
       <h2>数据导出</h2>
@@ -154,6 +179,7 @@ code{background:#f2f4f7;padding:2px 5px;border-radius:5px}
         <button id="expVignette">vignette_long.csv</button>
         <button id="expDeep">deep_wide.csv</button>
         <button id="expQuality">quality_audit.csv</button>
+        <button id="expScreening">screening_funnel.csv</button>
         <button class="secondary" id="expRaw">raw_cloud_records.json</button>
       </div>
     </section>
@@ -209,7 +235,7 @@ code{background:#f2f4f7;padding:2px 5px;border-radius:5px}
       <div class="table-wrap"><table>
         <thead><tr>
           <th>server_received_at</th><th>respondent_id</th><th>status</th>
-          <th>version</th><th>block</th><th>duration_sec</th>
+          <th>phase</th><th>source</th><th>version</th><th>block</th><th>duration_sec</th>
         </tr></thead>
         <tbody id="recentBody"></tbody>
       </table></div>
@@ -230,11 +256,16 @@ const DEEP_KEYS = [
   "gl1","gl2","gl3","ps1","ps2","ps3"
 ];
 const ATTITUDE_KEYS = [
-  "pc1","pc2","pc3","gt1","gt2","gt3","mt1","mt2","mt3"
+  "pc1","pc2","pc3","pc4","gt1","gt2","gt3","mt1","mt2","mt3"
 ];
 
 let cloudRows = [];
 let currentSession = null;
+
+function activeRows(){
+  const phase=document.getElementById("phaseFilter")?.value||"all";
+  return phase==="all" ? cloudRows : cloudRows.filter(r=>(r.study_phase||"development")===phase);
+}
 
 const $ = s => document.querySelector(s);
 const esc = x => String(x ?? "")
@@ -353,10 +384,10 @@ function isFullCompleted(row){
     && p.deep_answers && typeof p.deep_answers==="object";
 }
 function completedPayloads(){
-  return cloudRows.filter(isFullCompleted).map(r=>({...payloadOf(r),_cloud:r}));
+  return activeRows().filter(isFullCompleted).map(r=>({...payloadOf(r),_cloud:r}));
 }
 function allAuditPayloads(){
-  return cloudRows.map(r=>({...payloadOf(r),_cloud:r,_status:r.status}));
+  return activeRows().map(r=>({...payloadOf(r),_cloud:r,_status:r.status}));
 }
 function median(nums){
   const a=nums.filter(Number.isFinite).sort((x,y)=>x-y);
@@ -375,24 +406,36 @@ function countBy(items,keyFn){
 function setText(id,val){document.getElementById(id).textContent=val}
 
 function renderDashboard(){
-  const completedRows=cloudRows.filter(isFullCompleted);
+  const rows=activeRows();
+  const completedRows=rows.filter(isFullCompleted);
   const completed=completedRows.map(payloadOf);
-  const rejected=cloudRows.filter(r=>r.status==="quality_rejected");
-  const other=cloudRows.length-completedRows.length-rejected.length;
-  const durations=completedRows
-    .map(r=>Number(r.client_duration_sec ?? payloadOf(r).duration_sec))
-    .filter(Number.isFinite);
-  const med=median(durations);
+  const rejected=rows.filter(r=>r.status==="quality_rejected");
+  const screened=rows.filter(r=>r.status==="screened_out");
+  const other=rows.length-completedRows.length-rejected.length-screened.length;
+  const qualityDen=completedRows.length+rejected.length;
+  const validRate=qualityDen?100*completedRows.length/qualityDen:null;
 
-  setText("mTotal",cloudRows.length);
+  setText("mTotal",rows.length);
   setText("mCompleted",completedRows.length);
   setText("mRejected",rejected.length);
+  setText("mScreened",screened.length);
   setText("mOther",other);
-  setText("mDuration",med==null?"—":Math.round(med)+" s");
+  setText("mValidRate",validRate==null?"—":validRate.toFixed(1)+"%");
+
+  // Phase/source summary is always based on all cloud records, not the current filter.
+  const phaseCounts=countBy(cloudRows,r=>r.study_phase||"development");
+  $("#phaseBody").innerHTML=phaseCounts
+    .map(([k,n])=>`<tr><td>${esc(k)}</td><td>${n}</td></tr>`).join("")
+    || `<tr><td colspan="2">暂无数据</td></tr>`;
+
+  const sourceCounts=countBy(cloudRows,r=>r.recruitment_source||"direct");
+  $("#sourceBody").innerHTML=sourceCounts
+    .map(([k,n])=>`<tr><td>${esc(k)}</td><td>${n}</td></tr>`).join("")
+    || `<tr><td colspan="2">暂无数据</td></tr>`;
 
   // Version × status
   const vs=new Map();
-  cloudRows.forEach(r=>{
+  rows.forEach(r=>{
     const k=(r.survey_version||"unknown")+"|||"+(r.status||"unknown");
     vs.set(k,(vs.get(k)||0)+1);
   });
@@ -405,7 +448,7 @@ function renderDashboard(){
 
   // Quality flags + hard reasons
   const qm=new Map();
-  cloudRows.forEach(r=>{
+  rows.forEach(r=>{
     const q=r.quality || payloadOf(r).quality || {};
     [...(q.flags||[]),...(q.hard_reasons||[])].forEach(f=>{
       qm.set(f,(qm.get(f)||0)+1);
@@ -452,17 +495,19 @@ function renderDashboard(){
     .map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td><td>${r[4]}</td></tr>`).join("");
 
   // Recent records
-  $("#recentBody").innerHTML=cloudRows.slice(0,20).map(r=>{
+  $("#recentBody").innerHTML=rows.slice(0,20).map(r=>{
     const p=payloadOf(r);
     return `<tr>
       <td>${esc(fmtDate(r.server_received_at))}</td>
       <td>${esc(r.respondent_id)}</td>
       <td>${statusBadge(r.status)}</td>
+      <td>${esc(r.study_phase||"development")}</td>
+      <td>${esc(r.recruitment_source||"direct")}</td>
       <td>${esc(r.survey_version)}</td>
       <td>${esc(r.block_id)}</td>
       <td>${esc(r.client_duration_sec ?? p.duration_sec ?? "")}</td>
     </tr>`;
-  }).join("") || `<tr><td colspan="6">暂无记录</td></tr>`;
+  }).join("") || `<tr><td colspan="8">暂无记录</td></tr>`;
 }
 
 function statusBadge(s){
@@ -520,11 +565,11 @@ function csvDownload(name,rows){
 function exportRespondentWide(){
   const rows=completedPayloads();
   const h=[
-    "respondent_id","platform_pid","block_id","survey_version",
+    "respondent_id","platform_pid","block_id","survey_version","study_phase","recruitment_source",
     "submitted_at","server_received_at","duration_sec","deep_profile_id",
     "quality_score","quality_flags","hard_reasons",
     "attention_fail_count","opposite_diff","repeat_diff","fast_vignette_count",
-    ...ATTITUDE_KEYS,"cav_familiarity","cav_experience",
+    ...ATTITUDE_KEYS,"cav_familiarity","connected_familiarity","cav_experience","privacy_incident",
     "screening_traffic_roles","primary_traffic_role","driving_experience","crash_experience",
     "gender","age","education","province","urban_type"
   ];
@@ -533,15 +578,17 @@ function exportRespondentWide(){
     const q=r.quality?.metrics||{};
     const c=r._cloud||{};
     out.push([
-      r.respondent_id,r.platform_pid,r.block_id,c.survey_version,
+      r.respondent_id,r.platform_pid,r.block_id,c.survey_version,c.study_phase,c.recruitment_source,
       r.submitted_at,c.server_received_at,r.duration_sec,r.deep_profile_id,
       r.quality?.score,(r.quality?.flags||[]).join("|"),(r.quality?.hard_reasons||[]).join("|"),
       q.attention_fail_count,q.opposite_diff,q.repeat_diff,q.fast_vignette_count,
       ...ATTITUDE_KEYS.map(k=>r.attitudes?.[k]),
-      r.attitudes?.cav_familiarity,(r.attitudes?.cav_experience||[]).join("|"),
+      r.attitudes?.cav_familiarity,r.attitudes?.connected_familiarity,
+      (r.attitudes?.cav_experience||[]).join("|"),r.attitudes?.privacy_incident,
       (r.screening?.traffic_roles||[]).join("|"),
       r.background?.primary_traffic_role,r.background?.driving_experience,r.background?.crash_experience,
-      r.demographics?.gender,r.demographics?.age,r.demographics?.education,r.demographics?.province,r.demographics?.urban_type
+      r.demographics?.gender,r.demographics?.age,r.demographics?.education,r.demographics?.province,
+      r.demographics?.urban_type
     ]);
   });
   csvDownload("respondent_wide.csv",out);
@@ -550,14 +597,14 @@ function exportRespondentWide(){
 function exportVignetteLong(){
   const rows=completedPayloads();
   const out=[[
-    "respondent_id","platform_pid","block_id","survey_version","server_received_at",
+    "respondent_id","platform_pid","block_id","survey_version","study_phase","recruitment_source","server_received_at",
     "profile_id","order","A","B","C",
     "pea_s","pp_s","pf_s","gl_s","ps_s","duration_ms"
   ]];
   rows.forEach(r=>(r.profiles||[]).forEach(p=>{
     const a=r.vignette_answers?.[p.profile_id]||{};
     out.push([
-      r.respondent_id,r.platform_pid,r.block_id,r._cloud?.survey_version,r._cloud?.server_received_at,
+      r.respondent_id,r.platform_pid,r.block_id,r._cloud?.survey_version,r._cloud?.study_phase,r._cloud?.recruitment_source,r._cloud?.server_received_at,
       p.profile_id,p.order,p.A,p.B,p.C,
       a.pea_s,a.pp_s,a.pf_s,a.gl_s,a.ps_s,
       r.vignette_timing?.[p.profile_id]?.duration_ms
@@ -569,14 +616,14 @@ function exportVignetteLong(){
 function exportDeep(){
   const rows=completedPayloads();
   const out=[[
-    "respondent_id","platform_pid","block_id","survey_version","server_received_at",
+    "respondent_id","platform_pid","block_id","survey_version","study_phase","recruitment_source","server_received_at",
     "deep_profile_id","A","B","C",
     ...DEEP_KEYS,"repeat_ps1","repeat_diff"
   ]];
   rows.forEach(r=>{
     const p=(r.profiles||[]).find(x=>x.profile_id===r.deep_profile_id)||{};
     out.push([
-      r.respondent_id,r.platform_pid,r.block_id,r._cloud?.survey_version,r._cloud?.server_received_at,
+      r.respondent_id,r.platform_pid,r.block_id,r._cloud?.survey_version,r._cloud?.study_phase,r._cloud?.recruitment_source,r._cloud?.server_received_at,
       r.deep_profile_id,p.A,p.B,p.C,
       ...DEEP_KEYS.map(k=>r.deep_answers?.[k]),
       r.repeat_ps1,r.repeat_diff
@@ -585,10 +632,29 @@ function exportDeep(){
   csvDownload("deep_wide.csv",out);
 }
 
+function exportScreening(){
+  const out=[[
+    "cloud_id","status","respondent_id","platform_pid","survey_version","study_phase","recruitment_source",
+    "server_received_at","screenout_reason","consent","age18","mainland","traffic_roles"
+  ]];
+  cloudRows
+    .filter(r=>r.status==="screened_out")
+    .forEach(c=>{
+      const p=payloadOf(c);
+      out.push([
+        c.id,c.status,c.respondent_id,c.platform_pid,c.survey_version,c.study_phase,c.recruitment_source,
+        c.server_received_at,p.screenout_reason,
+        p.screening?.consent,p.screening?.age18,p.screening?.mainland,
+        (p.screening?.traffic_roles||[]).join("|")
+      ]);
+    });
+  csvDownload("screening_funnel.csv",out);
+}
+
 function exportQuality(){
   const rows=allAuditPayloads();
   const out=[[
-    "cloud_id","status","respondent_id","platform_pid","survey_version","server_received_at",
+    "cloud_id","status","respondent_id","platform_pid","survey_version","study_phase","recruitment_source","server_received_at",
     "duration_sec","quality_score","quality_flags","hard_reasons",
     "first_comprehension_fail_count","retry_comprehension_fail_count",
     "attention_fail_count","opposite_diff","repeat_diff","fast_vignette_count",
@@ -600,7 +666,7 @@ function exportQuality(){
     const c=r._cloud||{};
     out.push([
       c.id,r._status,r.respondent_id||c.respondent_id,r.platform_pid||c.platform_pid,
-      c.survey_version,c.server_received_at,
+      c.survey_version,c.study_phase,c.recruitment_source,c.server_received_at,
       r.duration_sec??c.client_duration_sec,r.quality?.score,
       (r.quality?.flags||[]).join("|"),(r.quality?.hard_reasons||[]).join("|"),
       r.comprehension?.first_fail_count,r.comprehension?.retry_fail_count,
@@ -637,6 +703,7 @@ $("#password").addEventListener("keydown",e=>{
   if(e.key==="Enter")$("#loginBtn").click();
 });
 $("#refreshBtn").onclick=refreshData;
+$("#phaseFilter").onchange=renderDashboard;
 $("#logoutBtn").onclick=()=>{
   clearSession();
   cloudRows=[];
@@ -648,9 +715,10 @@ $("#expRespondent").onclick=exportRespondentWide;
 $("#expVignette").onclick=exportVignetteLong;
 $("#expDeep").onclick=exportDeep;
 $("#expQuality").onclick=exportQuality;
+$("#expScreening").onclick=exportScreening;
 $("#expRaw").onclick=()=>download(
   "raw_cloud_records.json",
-  JSON.stringify(cloudRows,null,2),
+  JSON.stringify(activeRows(),null,2),
   "application/json;charset=utf-8",
   false
 );
